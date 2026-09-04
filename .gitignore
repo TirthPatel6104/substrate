@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Environments
+venv/
+.venv/
+env/
+.env
+
+# Substrate local state (never commit a user's memory/index)
+*.substrate.db
+.substrate/
+substrate_data/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
