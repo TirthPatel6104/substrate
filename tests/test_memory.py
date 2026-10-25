@@ -50,7 +50,7 @@ def test_brief_structure_and_markdown(sub):
     brief = sub.memory.brief("test")
     assert brief["scope"] == "test"
     assert any("Postgres" in m["content"] for m in brief["project"])
-    md = sub.memory.render_brief_markdown("test")
+    md = sub.brief_markdown("test")
     assert "# Project brief: test" in md
     assert "Postgres" in md
 

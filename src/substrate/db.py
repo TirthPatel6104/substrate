@@ -5,14 +5,16 @@ One database file per workspace (plus a global DB for cross-workspace memory).
 Uses WAL mode for concurrent readers, FTS5 for lexical search, and plain tables
 for vectors and graph edges. No external database server is required.
 
-Vectors are stored as JSON arrays. This is deliberately simple for the MVP; the
-similarity search is done in Python. For large corpora, swap the vector columns
-for ``sqlite-vec`` without changing the public API of the store modules.
+Vectors are stored as float32 blobs (see ``embedding.pack``). Nearest-neighbour
+search goes through ``vec.VectorIndex``: sqlite-vec when the extension loads,
+brute-force Python otherwise. Nothing in the public API of the store modules
+depends on which backend is active.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 from pathlib import Path
@@ -37,7 +39,7 @@ CREATE TABLE IF NOT EXISTS memories (
     uses        INTEGER DEFAULT 0,
     pinned      INTEGER DEFAULT 0,
     superseded_by INTEGER,              -- id of the memory that replaced this
-    embedding   TEXT,                   -- JSON float array
+    embedding   BLOB,                   -- float32 little-endian (legacy rows: JSON text)
     emb_model   TEXT,
     created_at  REAL NOT NULL,
     updated_at  REAL NOT NULL,
@@ -77,7 +79,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     file_id     INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
     ordinal     INTEGER NOT NULL,
     content     TEXT NOT NULL,
-    embedding   TEXT,
+    embedding   BLOB,                   -- float32 little-endian (legacy rows: JSON text)
     emb_model   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_chunks_file ON chunks(file_id);
@@ -165,12 +167,35 @@ class Database:
         self.path = str(path)
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(self.path)
+        # check_same_thread=False: the HTTP daemon serves several agents from
+        # worker threads; Substrate.dispatch serialises access with a lock.
+        self.conn = sqlite3.connect(self.path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         if self.path != ":memory:":
             self.conn.execute("PRAGMA journal_mode = WAL")
+            self.conn.execute("PRAGMA synchronous = NORMAL")
+        self.vec_available = self._load_sqlite_vec()
         self._init_schema()
+
+    def _load_sqlite_vec(self) -> bool:
+        """Load the sqlite-vec extension if installed and loadable; never fatal."""
+        if os.environ.get("SUBSTRATE_VEC", "auto").lower() in ("0", "off", "never", "false"):
+            return False
+        if not hasattr(self.conn, "enable_load_extension"):
+            return False
+        try:
+            import sqlite_vec  # type: ignore
+        except ImportError:
+            return False
+        try:
+            self.conn.enable_load_extension(True)
+            sqlite_vec.load(self.conn)
+            self.conn.enable_load_extension(False)
+            self.conn.execute("SELECT vec_version()").fetchone()
+            return True
+        except Exception:
+            return False
 
     def _init_schema(self) -> None:
         fresh = self.conn.execute(

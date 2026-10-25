@@ -53,3 +53,46 @@ def test_similar_files(sub, tmp_path):
     similar = sub.files.similar_files(tmp_path / "one.py", k=5)
     paths = [s["path"] for s in similar]
     assert any(p.endswith("two.py") for p in paths)
+
+
+def test_removed_files_are_pruned(sub, tmp_path):
+    _write(tmp_path, "gone.py", "x = 1\n")
+    _write(tmp_path, "stay.py", "y = 2\n")
+    sub.files.index_path(tmp_path)
+    (tmp_path / "gone.py").unlink()
+    stats = sub.files.index_path(tmp_path)
+    assert stats["removed"] == 1
+    assert sub.files.stats()["files"] == 1
+    assert sub.db.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0] == 1
+
+
+def test_gitignore_is_honoured(sub, tmp_path):
+    (tmp_path / ".gitignore").write_text("generated/\n*.log\n", encoding="utf-8")
+    (tmp_path / "generated").mkdir()
+    _write(tmp_path, "generated/big.py", "x = 1\n")
+    _write(tmp_path, "notes.log", "ignored\n")
+    _write(tmp_path, "keep.py", "y = 2\n")
+    stats = sub.files.index_path(tmp_path)
+    assert stats["indexed"] == 1
+    paths = [r[0] for r in sub.db.conn.execute("SELECT path FROM files")]
+    assert len(paths) == 1 and paths[0].endswith("keep.py")
+
+
+def test_similarity_edges_update_incrementally(sub, tmp_path):
+    _write(tmp_path, "one.py", "def add(a, b):\n    return a + b\n")
+    _write(tmp_path, "two.py", "def add_numbers(a, b):\n    return a + b\n")
+    sub.files.index_path(tmp_path)
+    before = sub.db.conn.execute("SELECT COUNT(*) FROM edges WHERE type='similar_to'").fetchone()[0]
+    assert before >= 2
+    # Changing two.py to something unrelated must drop the edge pair.
+    _write(tmp_path, "two.py", "# Shopping list\n- milk\n- eggs\n- bread\n")
+    sub.files.index_path(tmp_path)
+    assert sub.files.similar_files(tmp_path / "one.py") == []
+
+
+def test_stats_include_backend_and_languages(sub, tmp_path):
+    _write(tmp_path, "a.py", "x = 1\n")
+    sub.files.index_path(tmp_path)
+    st = sub.files.stats()
+    assert st["languages"] == {"python": 1}
+    assert st["vector_backend"] in ("sqlite-vec", "python-scan")
