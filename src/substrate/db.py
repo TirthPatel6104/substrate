@@ -19,7 +19,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -48,8 +48,10 @@ CREATE TABLE IF NOT EXISTS memories (
 CREATE INDEX IF NOT EXISTS idx_mem_scope ON memories(scope, type);
 CREATE INDEX IF NOT EXISTS idx_mem_active ON memories(superseded_by);
 
+-- tokenchars '_' keeps identifiers (safety_level, emb_model) as single tokens.
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-    content, content='memories', content_rowid='id'
+    content, content='memories', content_rowid='id',
+    tokenize="unicode61 tokenchars '_'"
 );
 CREATE TRIGGER IF NOT EXISTS mem_ai AFTER INSERT ON memories BEGIN
     INSERT INTO memories_fts(rowid, content) VALUES (new.id, new.content);
@@ -85,7 +87,8 @@ CREATE TABLE IF NOT EXISTS chunks (
 CREATE INDEX IF NOT EXISTS idx_chunks_file ON chunks(file_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-    content, content='chunks', content_rowid='id'
+    content, content='chunks', content_rowid='id',
+    tokenize="unicode61 tokenchars '_'"
 );
 CREATE TRIGGER IF NOT EXISTS chunk_ai AFTER INSERT ON chunks BEGIN
     INSERT INTO chunks_fts(rowid, content) VALUES (new.id, new.content);
@@ -157,6 +160,18 @@ CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit(ts);
 # version -> statements that bring a (version-1) database up to date.
 _MIGRATIONS: dict[int, list[str]] = {
     2: ["ALTER TABLE approvals ADD COLUMN cwd TEXT"],
+    # v3: identifier-aware FTS tokenizer. External-content FTS tables are
+    # dropped, recreated with the new tokenizer, and rebuilt from their sources.
+    3: [
+        "DROP TABLE IF EXISTS memories_fts",
+        "DROP TABLE IF EXISTS chunks_fts",
+        "CREATE VIRTUAL TABLE memories_fts USING fts5(content, content='memories', "
+        "content_rowid='id', tokenize=\"unicode61 tokenchars '_'\")",
+        "CREATE VIRTUAL TABLE chunks_fts USING fts5(content, content='chunks', "
+        "content_rowid='id', tokenize=\"unicode61 tokenchars '_'\")",
+        "INSERT INTO memories_fts(memories_fts) VALUES ('rebuild')",
+        "INSERT INTO chunks_fts(chunks_fts) VALUES ('rebuild')",
+    ],
 }
 
 

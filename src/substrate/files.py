@@ -94,6 +94,46 @@ def _extract_imports(text: str, language: str | None) -> list[str]:
     return sorted(set(mods))
 
 
+def query_terms(query: str) -> list[str]:
+    """Tokens for FTS: identifiers are kept whole *and* split on '_' so that
+    ``safety_level`` matches the symbol while ``safety level`` matches prose."""
+    terms: list[str] = []
+    for tok in re.findall(r"[A-Za-z0-9_]+", query):
+        terms.append(tok)
+        if "_" in tok:
+            terms.extend(p for p in tok.split("_") if len(p) > 1)
+    return list(dict.fromkeys(terms))
+
+
+def fts_query(terms: list[str]) -> str:
+    return " OR ".join(f'"{t}"' for t in terms)
+
+
+def fts_queries(terms: list[str]) -> list[str]:
+    """MATCH expressions in priority order.
+
+    When the query names identifiers, an exact-identifier query runs first so a
+    symbol definition outranks prose that happens to contain both halves of
+    the name; the expanded OR query then fills in the remaining ranks.
+    """
+    idents = [t for t in terms if "_" in t]
+    out = [fts_query(idents)] if idents else []
+    out.append(fts_query(terms))
+    return out
+
+
+def lexical_ranks(rows_for: callable, terms: list[str], limit: int = 50) -> dict[int, int]:
+    """Run the prioritised FTS queries; return {rowid: rank} with earlier queries ranked first."""
+    ranks: dict[int, int] = {}
+    for match in fts_queries(terms):
+        for rid in rows_for(match):
+            if rid not in ranks:
+                ranks[rid] = len(ranks)
+            if len(ranks) >= limit:
+                return ranks
+    return ranks
+
+
 def _load_gitignore(root: Path) -> list[str]:
     """Return simple glob patterns from a root .gitignore (no negation support)."""
     gi = root / ".gitignore"
@@ -128,8 +168,12 @@ class FileIndex:
                                dim=self.embedder.dim, model=self.embedder.name)
 
     # -- indexing -------------------------------------------------------------
-    def index_path(self, root: str | Path) -> dict:
-        """Scan a file or directory tree; (re)index changed files. Returns stats."""
+    def index_path(self, root: str | Path, *, exclude: tuple[str, ...] = ()) -> dict:
+        """Scan a file or directory tree; (re)index changed files. Returns stats.
+
+        ``exclude`` lists extra top-level directory names to skip (on top of the
+        built-in ignore list and the root ``.gitignore``).
+        """
         root = Path(root).expanduser().resolve()
         t0 = time.perf_counter()
         stats = {"scanned": 0, "indexed": 0, "skipped": 0, "unchanged": 0, "removed": 0,
@@ -138,7 +182,7 @@ class FileIndex:
             targets = [root]
             pats: list[str] = []
         else:
-            pats = _load_gitignore(root)
+            pats = _load_gitignore(root) + [f"/{e}" for e in exclude]
             targets = list(self._walk(root, pats))
         changed: list[int] = []
         seen: set[str] = set()
@@ -285,15 +329,14 @@ class FileIndex:
         import sqlite3
 
         lexical_rank: dict[int, int] = {}
-        terms = re.findall(r"[A-Za-z0-9_]+", query)
+        terms = query_terms(query)
         if terms:
-            try:
-                fts = self.db.conn.execute(
+            def rows_for(match: str) -> list[int]:
+                return [int(r["rowid"]) for r in self.db.conn.execute(
                     "SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY rank LIMIT 50",
-                    (" OR ".join(f'"{t}"' for t in terms),),
-                ).fetchall()
-                for i, r in enumerate(fts):
-                    lexical_rank[int(r["rowid"])] = i
+                    (match,))]
+            try:
+                lexical_rank = lexical_ranks(rows_for, terms)
             except sqlite3.Error:
                 pass
 
@@ -318,21 +361,27 @@ class FileIndex:
                 f"SELECT c.id, c.file_id, c.content, f.path FROM chunks c "
                 f"JOIN files f ON f.id = c.file_id WHERE c.id IN ({marks})", ids)
         }
+        # Filename boost: a query term that names the file (cli, safety, release)
+        # is strong evidence, and chunk text rarely repeats its own filename.
+        lower_terms = {t.lower() for t in terms}
         best_per_file: dict[int, dict] = {}
         for cid in ids:
             r = rows.get(cid)
             if r is None:
                 continue
             fid = int(r["file_id"])
-            if fid not in best_per_file:
+            stem = Path(r["path"]).stem.lower()
+            stem_parts = set(re.split(r"[_\-.]", stem)) | {stem}
+            boost = 1.25 if lower_terms & stem_parts else 1.0
+            score = fused[cid] * boost
+            if fid not in best_per_file or score > best_per_file[fid]["score"]:
                 best_per_file[fid] = {
                     "path": r["path"],
-                    "score": round(fused[cid], 4),
+                    "score": round(score, 4),
                     "snippet": r["content"][:280],
                 }
-            if len(best_per_file) >= k:
-                break
-        return list(best_per_file.values())
+        ranked = sorted(best_per_file.values(), key=lambda x: x["score"], reverse=True)
+        return ranked[:k]
 
     def similar_files(self, path: str | Path, *, k: int = 5) -> list[dict]:
         path = str(Path(path).expanduser().resolve())

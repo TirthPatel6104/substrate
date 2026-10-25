@@ -1,0 +1,13 @@
+{
+  "$comment": "Project-level MCP config for Claude Code. The workspace name scopes memory/tasks; use the repo name. For a shared daemon serving several agents, start `substrate serve --transport http` and use the 'substrate-http' entry instead.",
+  "mcpServers": {
+    "substrate": {
+      "command": "substrate",
+      "args": ["serve", "--workspace", "my-project"]
+    },
+    "substrate-http": {
+      "type": "http",
+      "url": "http://127.0.0.1:8731/mcp"
+    }
+  }
+}

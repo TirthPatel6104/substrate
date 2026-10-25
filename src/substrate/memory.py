@@ -20,6 +20,7 @@ import time
 
 from .db import Database
 from .embedding import get_embedder, pack
+from .files import lexical_ranks, query_terms
 from .vec import VectorIndex
 
 VALID_TYPES = {"working", "episodic", "semantic", "task", "project"}
@@ -153,16 +154,15 @@ class MemoryStore:
 
         # Lexical ranking via FTS5 (ids in relevance order, filtered to scope).
         lexical_rank: dict[int, int] = {}
-        terms = re.findall(r"[A-Za-z0-9_]+", query)
+        terms = query_terms(query)
         if terms:
-            try:
-                fts = self.db.conn.execute(
+            def rows_for(match: str) -> list[int]:
+                return [int(r["id"]) for r in self.db.conn.execute(
                     f"SELECT m.id FROM memories_fts f JOIN memories m ON m.id = f.rowid "
                     f"WHERE memories_fts MATCH ? AND {where_sql} ORDER BY f.rank LIMIT 50",
-                    (" OR ".join(f'"{t}"' for t in terms), *params),
-                ).fetchall()
-                for i, r in enumerate(fts):
-                    lexical_rank[int(r["id"])] = i
+                    (match, *params))]
+            try:
+                lexical_rank = lexical_ranks(rows_for, terms)
             except sqlite3_err():
                 pass
 

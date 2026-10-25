@@ -1,0 +1,19 @@
+{
+  "$comment": "Drop into .claude/settings.json (project) or ~/.claude/settings.json (user). SessionStart injects the Substrate brief into context; Stop stores what the session did as an episodic memory. Both hooks exit 0 even on failure so they can never break Claude Code.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "substrate hook session-start" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "substrate hook stop" }
+        ]
+      }
+    ]
+  }
+}

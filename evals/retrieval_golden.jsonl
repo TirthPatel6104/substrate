@@ -1,0 +1,40 @@
+{"query": "where are shell commands classified as safe or dangerous", "expect": ["src/substrate/safety.py"], "kind": "paraphrase"}
+{"query": "safety_level", "expect": ["src/substrate/safety.py"], "kind": "symbol"}
+{"query": "fork bomb detection", "expect": ["src/substrate/safety.py"], "kind": "keyword"}
+{"query": "how do I stop a command like rm -rf from running", "expect": ["src/substrate/safety.py", "src/substrate/executor.py"], "kind": "paraphrase"}
+{"query": "pending approvals queue decide approve deny", "expect": ["src/substrate/approvals.py"], "kind": "keyword"}
+{"query": "human in the loop review of commands before execution", "expect": ["src/substrate/approvals.py", "src/substrate/executor.py", "src/substrate/httpd.py"], "kind": "paraphrase"}
+{"query": "subprocess run with timeout and scrubbed environment", "expect": ["src/substrate/executor.py"], "kind": "keyword"}
+{"query": "SQLite schema migrations version", "expect": ["src/substrate/db.py"], "kind": "keyword"}
+{"query": "FTS5 virtual table triggers", "expect": ["src/substrate/db.py"], "kind": "keyword"}
+{"query": "reciprocal rank fusion of lexical and vector results", "expect": ["src/substrate/memory.py", "src/substrate/files.py"], "kind": "keyword"}
+{"query": "refuse to store api keys and passwords", "expect": ["src/substrate/memory.py"], "kind": "paraphrase"}
+{"query": "supersede a memory keep history", "expect": ["src/substrate/memory.py"], "kind": "keyword"}
+{"query": "JSON-RPC over stdin stdout for MCP", "expect": ["src/substrate/server.py"], "kind": "paraphrase"}
+{"query": "tools/list tools/call initialize", "expect": ["src/substrate/server.py"], "kind": "keyword"}
+{"query": "HTTP server with sessions for multiple agents", "expect": ["src/substrate/httpd.py"], "kind": "paraphrase"}
+{"query": "CSRF protection origin header", "expect": ["src/substrate/httpd.py"], "kind": "keyword"}
+{"query": "chunk text into paragraphs for embedding", "expect": ["src/substrate/files.py"], "kind": "paraphrase"}
+{"query": "extract python imports with regex", "expect": ["src/substrate/files.py"], "kind": "keyword"}
+{"query": "files that are similar to each other via centroid", "expect": ["src/substrate/files.py"], "kind": "paraphrase"}
+{"query": "task lease owner handoff to another agent", "expect": ["src/substrate/tasks.py"], "kind": "keyword"}
+{"query": "resume a long task after the session died", "expect": ["src/substrate/tasks.py"], "kind": "paraphrase"}
+{"query": "hashing trick character n-gram embedder", "expect": ["src/substrate/embedding.py"], "kind": "keyword"}
+{"query": "sqlite-vec vec0 nearest neighbour", "expect": ["src/substrate/vec.py"], "kind": "keyword"}
+{"query": "k nearest neighbours fallback to brute force", "expect": ["src/substrate/vec.py"], "kind": "paraphrase"}
+{"query": "argparse subcommands for the command line", "expect": ["src/substrate/cli.py"], "kind": "paraphrase"}
+{"query": "doctor check installation", "expect": ["src/substrate/cli.py"], "kind": "keyword"}
+{"query": "where is the data directory and database path decided", "expect": ["src/substrate/config.py"], "kind": "paraphrase"}
+{"query": "dispatch a tool call to the right subsystem", "expect": ["src/substrate/core.py"], "kind": "paraphrase"}
+{"query": "TOOL_SCHEMAS inputSchema", "expect": ["src/substrate/core.py"], "kind": "symbol"}
+{"query": "property based testing with hypothesis", "expect": ["tests/test_safety_properties.py"], "kind": "keyword"}
+{"query": "regression corpus of bypass commands", "expect": ["tests/test_corpus.py", "tests/corpus/commands.jsonl"], "kind": "paraphrase"}
+{"query": "publish to PyPI with trusted publishing on tag", "expect": [".github/workflows/release.yml"], "kind": "paraphrase"}
+{"query": "CI matrix ubuntu windows macos", "expect": [".github/workflows/ci.yml"], "kind": "keyword"}
+{"query": "optional dependencies extras fastembed", "expect": ["pyproject.toml"], "kind": "keyword"}
+{"query": "what problem does this project solve", "expect": ["README.md", "docs/AGENT_LAYER_BLUEPRINT.md"], "kind": "paraphrase"}
+{"query": "why memory quality matters and stale memories", "expect": ["docs/AGENT_LAYER_BLUEPRINT.md"], "kind": "paraphrase"}
+{"query": "the -v flag false safe bug", "expect": ["docs/CODE_REVIEW.md", "src/substrate/safety.py"], "kind": "keyword"}
+{"query": "render the brief as markdown for CLAUDE.md", "expect": ["src/substrate/core.py"], "kind": "paraphrase"}
+{"query": "Windows cmd builtins like dir and type", "expect": ["src/substrate/executor.py"], "kind": "keyword"}
+{"query": "benchmark the gate corpus latency", "expect": ["scripts/gate_report.py"], "kind": "paraphrase"}
