@@ -50,3 +50,39 @@ def test_list_open_excludes_done(sub):
     open_ids = {t["id"] for t in sub.tasks.list_open()}
     assert a in open_ids
     assert b not in open_ids
+
+
+def test_dispatch_enforces_lease_between_actors(sub):
+    created = sub.dispatch("tasks.create", {"goal": "shared", "steps": ["s1"]}, actor="A")
+    tid = created["task_id"]
+    step = sub.db.conn.execute("SELECT id FROM task_steps WHERE task_id=?", (tid,)).fetchone()[0]
+    denied = sub.dispatch("tasks.update_step", {"step_id": step, "status": "done"}, actor="B")
+    assert denied["code"] == "lease_held" and denied["lease_owner"] == "A"
+    # Reads never need the lease.
+    assert sub.dispatch("tasks.resume", {"task_id": tid}, actor="B")["lease_owner"] == "A"
+    # Claim fails with the owner name, handoff releases, then B owns it.
+    assert sub.dispatch("tasks.claim", {"task_id": tid}, actor="B")["code"] == "lease_held"
+    pack = sub.dispatch("tasks.handoff", {"task_id": tid, "to": "B", "note": "take over"}, actor="A")
+    assert pack["handoff_from"] == "A" and pack["handoff_note"] == "take over"
+    assert sub.dispatch("tasks.claim", {"task_id": tid}, actor="B")["lease_owner"] == "B"
+    assert sub.dispatch("tasks.update_step", {"step_id": step, "status": "done"}, actor="B")["updated"]
+    resumed = sub.dispatch("tasks.resume", {"task_id": tid})
+    assert resumed["status"] == "done"
+    assert resumed["recent_handoffs"] and resumed["recent_handoffs"][0]["actor"] == "A"
+
+
+def test_expired_lease_can_be_taken(sub):
+    sub.tasks.lease_seconds = 0
+    tid = sub.tasks.create("expiring")
+    assert sub.tasks.acquire_lease(tid, "A")
+    import time
+    time.sleep(0.01)
+    assert sub.tasks.acquire_lease(tid, "B")
+    assert sub.tasks.release_expired() >= 0
+
+
+def test_resume_has_next_step_and_step_ids(sub):
+    tid = sub.tasks.create("t", ["one", "two"])
+    pack = sub.tasks.resume(tid)
+    assert pack["next_step"]["description"] == "one"
+    assert all("step_id" in s for s in pack["remaining_steps"])
