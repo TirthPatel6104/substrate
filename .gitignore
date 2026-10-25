@@ -24,3 +24,9 @@ substrate_data/
 .DS_Store
 .idea/
 .vscode/
+
+# Tooling
+.hypothesis/
+coverage.xml
+.coverage
+htmlcov/
