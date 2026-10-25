@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "substrate": {
+      "command": "python",
+      "args": ["-m", "substrate.server", "--workspace", "substrate"]
+    }
+  }
+}

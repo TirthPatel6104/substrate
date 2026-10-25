@@ -1,19 +1,41 @@
 [project]
-name = "substrate"
-version = "0.1.0"
-description = "Local-first intelligence layer for AI agents: persistent memory, file intelligence, task orchestration, and safe tool execution over MCP."
+name = "substrate-agent"
+version = "0.2.0"
+description = "Local-first intelligence layer for AI agents: persistent memory, file intelligence, task orchestration, and a deterministic safety gate for tool execution, over MCP."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Substrate contributors" }]
-keywords = ["mcp", "ai-agents", "memory", "local-first", "safety"]
+authors = [{ name = "Tirth Patel" }]
+keywords = ["mcp", "ai-agents", "memory", "local-first", "safety", "claude-code", "sqlite"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: System :: Systems Administration",
+  "Topic :: Security",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/TirthPatel6104/substrate"
+Repository = "https://github.com/TirthPatel6104/substrate"
+Issues = "https://github.com/TirthPatel6104/substrate/issues"
+Documentation = "https://github.com/TirthPatel6104/substrate/tree/main/docs"
 
 [project.optional-dependencies]
 # Optional accelerators — the daemon runs fully without them (deterministic
 # hashing embedder + stdlib fallbacks are used when these are absent).
 embeddings = ["fastembed>=0.3"]
-dev = ["pytest>=8", "ruff>=0.6"]
+vec = ["sqlite-vec>=0.1.6"]
+all = ["fastembed>=0.3", "sqlite-vec>=0.1.6"]
+dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6", "hypothesis>=6.100", "sqlite-vec>=0.1.6"]
 
 [project.scripts]
 substrate = "substrate.cli:main"
@@ -28,6 +50,15 @@ packages = ["src/substrate"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.coverage.run]
+source = ["substrate"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = ["pragma: no cover", "if __name__ == .__main__.:", "raise NotImplementedError"]
 
 [tool.ruff]
 line-length = 100
