@@ -17,7 +17,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -131,10 +131,11 @@ CREATE TABLE IF NOT EXISTS approvals (
     command     TEXT NOT NULL,
     reason      TEXT,
     requested_by TEXT,
-    status      TEXT NOT NULL DEFAULT 'pending', -- pending|approved|denied|expired
+    status      TEXT NOT NULL DEFAULT 'pending', -- pending|approved|denied|expired|executed
     decided_by  TEXT,
     created_at  REAL NOT NULL,
-    decided_at  REAL
+    decided_at  REAL,
+    cwd         TEXT                             -- working directory the agent proposed from
 );
 CREATE INDEX IF NOT EXISTS idx_appr_status ON approvals(status);
 
@@ -150,6 +151,11 @@ CREATE TABLE IF NOT EXISTS audit (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit(ts);
 """
+
+# version -> statements that bring a (version-1) database up to date.
+_MIGRATIONS: dict[int, list[str]] = {
+    2: ["ALTER TABLE approvals ADD COLUMN cwd TEXT"],
+}
 
 
 class Database:
@@ -167,14 +173,44 @@ class Database:
         self._init_schema()
 
     def _init_schema(self) -> None:
+        fresh = self.conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'"
+        ).fetchone() is None
         self.conn.executescript(_SCHEMA)
         row = self.conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
-        if row is None:
+        if fresh or row is None:
             self.conn.execute(
-                "INSERT INTO meta(key, value) VALUES ('schema_version', ?)",
+                "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)",
                 (str(SCHEMA_VERSION),),
             )
-        self.conn.commit()
+            self.conn.commit()
+            return
+        self._migrate(int(row["value"]))
+
+    def _migrate(self, current: int) -> None:
+        """Apply forward-only migrations from ``current`` to ``SCHEMA_VERSION``.
+
+        Each step is a list of statements. ``CREATE ... IF NOT EXISTS`` in the
+        base schema already handles new tables; migrations are for altering
+        existing ones. Never edit a shipped step — add a new version.
+        """
+        for version in range(current + 1, SCHEMA_VERSION + 1):
+            for stmt in _MIGRATIONS.get(version, []):
+                try:
+                    self.conn.execute(stmt)
+                except sqlite3.OperationalError as e:  # column already exists etc.
+                    if "duplicate column" not in str(e).lower():
+                        raise
+            self.conn.execute(
+                "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)",
+                (str(version),),
+            )
+            self.conn.commit()
+
+    @property
+    def schema_version(self) -> int:
+        row = self.conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+        return int(row["value"]) if row else 0
 
     # -- helpers --------------------------------------------------------------
     def audit(self, actor: str, tool: str, args: object, verdict: str, result: str) -> None:

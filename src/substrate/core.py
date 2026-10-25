@@ -83,7 +83,9 @@ class Substrate:
                 return {"tasks": self.tasks.list_open(scope=scope)}
 
             if tool == "exec.propose":
-                return self.executor.propose(p["command"], actor=actor).to_dict()
+                return self.executor.propose(
+                    p["command"], actor=actor, cwd=p.get("cwd"), timeout=p.get("timeout")
+                ).to_dict()
             if tool == "exec.run_approved":
                 return self.executor.run_approved(int(p["approval_id"]), actor=actor).to_dict()
             if tool == "approvals.pending":
@@ -148,7 +150,8 @@ TOOL_SCHEMAS: list[dict] = [
      "inputSchema": {"type": "object", "properties": {"scope": {"type": "string"}}}},
     {"name": "exec.propose", "description": "Propose a shell command; runs if SAFE, queues if it needs confirmation, refuses if dangerous.",
      "inputSchema": {"type": "object", "required": ["command"], "properties": {
-         "command": {"type": "string"}}}},
+         "command": {"type": "string"}, "cwd": {"type": "string"},
+         "timeout": {"type": "integer", "description": "seconds"}}}},
     {"name": "exec.run_approved", "description": "Run a command a human approved in the queue.",
      "inputSchema": {"type": "object", "required": ["approval_id"], "properties": {
          "approval_id": {"type": "integer"}}}},

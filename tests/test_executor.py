@@ -62,3 +62,56 @@ def test_dispatch_roundtrip(sub):
     out = sub.dispatch("exec.propose", {"command": "echo via-dispatch"})
     assert out["status"] == "ran"
     assert "via-dispatch" in out["stdout"]
+
+
+def test_shell_operators_run_through_shell_after_gating(sub):
+    res = sub.executor.propose("echo one && echo two")
+    assert res.status == "ran"
+    assert res.extra["mode"] == "shell"
+    assert "one" in res.stdout and "two" in res.stdout
+
+
+def test_shell_policy_never_refuses_operator_commands(sub, monkeypatch):
+    monkeypatch.setenv("SUBSTRATE_EXEC_SHELL", "never")
+    res = sub.executor.propose("echo one | cat")
+    assert res.status == "error"
+    assert "SUBSTRATE_EXEC_SHELL" in res.reason
+
+
+def test_plain_command_runs_without_shell(sub):
+    res = sub.executor.propose("echo plain")
+    assert res.extra["mode"] in ("argv", "cmd-builtin")
+    assert "plain" in res.stdout
+
+
+def test_approval_is_single_use(sub):
+    res = sub.executor.propose("mv nonexistent_a nonexistent_b")
+    aid = res.approval_id
+    sub.approvals.decide(aid, approved=True)
+    first = sub.executor.run_approved(aid)
+    assert first.status in ("ran", "error")
+    assert sub.approvals.get(aid)["status"] == "executed"
+    second = sub.executor.run_approved(aid)
+    assert second.status == "error"
+    assert "executed" in second.reason
+
+
+def test_approval_records_cwd_and_runs_there(sub, tmp_path):
+    res = sub.executor.propose("mkdir made-here", cwd=str(tmp_path))
+    assert res.status == "pending_approval"
+    assert sub.approvals.get(res.approval_id)["cwd"] == str(tmp_path)
+    sub.approvals.decide(res.approval_id, approved=True)
+    out = sub.executor.run_approved(res.approval_id)
+    assert out.status == "ran"
+    assert (tmp_path / "made-here").is_dir()
+
+
+def test_stale_approvals_expire(sub):
+    res = sub.executor.propose("mv a b")
+    assert sub.approvals.expire_stale(ttl_seconds=0) == 1
+    assert sub.approvals.get(res.approval_id)["status"] == "expired"
+
+
+def test_result_reports_duration(sub):
+    res = sub.executor.propose("echo timed")
+    assert res.duration_ms is not None and res.duration_ms >= 0
