@@ -82,12 +82,27 @@ def test_similarity_edges_update_incrementally(sub, tmp_path):
     _write(tmp_path, "one.py", "def add(a, b):\n    return a + b\n")
     _write(tmp_path, "two.py", "def add_numbers(a, b):\n    return a + b\n")
     sub.files.index_path(tmp_path)
-    before = sub.db.conn.execute("SELECT COUNT(*) FROM edges WHERE type='similar_to'").fetchone()[0]
-    assert before >= 2
-    # Changing two.py to something unrelated must drop the edge pair.
+    assert sub.files.similar_files(tmp_path / "one.py")[0]["path"].endswith("two.py")
+    # The lookup is cached as an edge ...
+    cached = sub.db.conn.execute("SELECT COUNT(*) FROM edges WHERE type='similar_to'").fetchone()[0]
+    assert cached == 1
+    # ... and changing two.py to something unrelated invalidates it.
     _write(tmp_path, "two.py", "# Shopping list\n- milk\n- eggs\n- bread\n")
     sub.files.index_path(tmp_path)
     assert sub.files.similar_files(tmp_path / "one.py") == []
+
+
+def test_v3_database_gets_centroids_backfilled(sub, tmp_path):
+    _write(tmp_path, "a.py", "def add(a, b):\n    return a + b\n")
+    _write(tmp_path, "b.py", "def add_numbers(a, b):\n    return a + b\n")
+    sub.files.index_path(tmp_path)
+    sub.db.conn.execute("UPDATE files SET centroid=NULL, emb_model=NULL")
+    sub.db.conn.execute("DELETE FROM edges WHERE type='similar_to'")
+    sub.db.conn.commit()
+    stats = sub.files.index_path(tmp_path)
+    assert stats["unchanged"] == 2
+    assert sub.db.conn.execute("SELECT COUNT(*) FROM files WHERE centroid IS NULL").fetchone()[0] == 0
+    assert sub.files.similar_files(tmp_path / "a.py")[0]["path"].endswith("b.py")
 
 
 def test_stats_include_backend_and_languages(sub, tmp_path):

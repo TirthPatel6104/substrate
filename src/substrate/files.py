@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import fnmatch
 import hashlib
+import math
 import re
 import time
 from pathlib import Path
 
 from .db import Database
-from .embedding import cosine, get_embedder, pack, unpack
+from .embedding import get_embedder, pack, unpack
 from .vec import VectorIndex
 
 # Directories never worth indexing.
@@ -47,12 +48,18 @@ _SIMILAR_THRESHOLD = 0.55
 _SIMILAR_K = 8               # similar_to edges kept per file
 
 
-def _hash_file(path: Path) -> str:
-    h = hashlib.blake2b(digest_size=16)
-    with path.open("rb") as f:
-        for block in iter(lambda: f.read(65536), b""):
-            h.update(block)
-    return h.hexdigest()
+def _mean_unit(vectors: list[list[float]]) -> list[float]:
+    """L2-normalised mean of unit vectors (a file's centroid); [] if none."""
+    vectors = [v for v in vectors if v]
+    if not vectors:
+        return []
+    dim = len(vectors[0])
+    acc = [0.0] * dim
+    for v in vectors:
+        for i in range(dim):
+            acc[i] += v[i]
+    norm = math.sqrt(sum(x * x for x in acc)) or 1.0
+    return [x / norm for x in acc]
 
 
 def _chunk_text(text: str, target: int = 1200) -> list[str]:
@@ -166,6 +173,8 @@ class FileIndex:
         self.embedder = get_embedder()
         self.vec = VectorIndex(db, "chunks_vec", source="chunks",
                                dim=self.embedder.dim, model=self.embedder.name)
+        self.file_vec = VectorIndex(db, "files_vec", source="files", column="centroid",
+                                    dim=self.embedder.dim, model=self.embedder.name)
 
     # -- indexing -------------------------------------------------------------
     def index_path(self, root: str | Path, *, exclude: tuple[str, ...] = ()) -> dict:
@@ -186,7 +195,7 @@ class FileIndex:
             targets = list(self._walk(root, pats))
         changed: list[int] = []
         seen: set[str] = set()
-        for path in targets:
+        for n, path in enumerate(targets, start=1):
             stats["scanned"] += 1
             outcome, file_id, nchunks = self._index_file(path)
             stats[outcome] += 1
@@ -195,11 +204,16 @@ class FileIndex:
                 seen.add(str(path))
                 if outcome == "indexed":
                     changed.append(file_id)
+            if n % 100 == 0:
+                self.db.conn.commit()  # bounded loss on crash, far fewer fsyncs than per-file
+        self.db.conn.commit()
         if root.is_dir():
             stats["removed"] = self._prune_missing(root, seen)
-        # Re-embed rows written by an older embedding model, then refresh edges.
+        # Re-embed rows written by an older embedding model; fill centroids for
+        # rows from databases that predate them.
         changed += self._reembed_stale()
-        self._update_similarity_edges(changed)
+        self._backfill_centroids()
+        self._invalidate_similarity_cache(changed)
         stats["embedder"] = self.embedder.name
         stats["vector_backend"] = "sqlite-vec" if self.vec.accelerated else "python-scan"
         stats["duration_ms"] = int((time.perf_counter() - t0) * 1000)
@@ -220,12 +234,16 @@ class FileIndex:
             if path.suffix.lower() not in _TEXT_EXTS and path.name.lower() not in (
                     "dockerfile", "makefile", "readme", "license"):
                 return "skipped", None, 0
-            size = path.stat().st_size
+            st = path.stat()
+            size = st.st_size
             if size > _MAX_BYTES or size == 0:
                 return "skipped", None, 0
-            file_hash = _hash_file(path)
+            # One open per file: on Windows each open() costs several ms (AV
+            # scanning), and it dominated indexing when we hashed and then read.
+            raw = path.read_bytes()
         except OSError:
             return "skipped", None, 0
+        file_hash = hashlib.blake2b(raw, digest_size=16).hexdigest()
 
         spath = str(path)
         existing = self.db.conn.execute(
@@ -234,18 +252,14 @@ class FileIndex:
         if existing and existing["hash"] == file_hash:
             return "unchanged", int(existing["id"]), 0
 
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            return "skipped", None, 0
-
+        text = raw.decode("utf-8", errors="replace")
         language = _LANG_BY_EXT.get(path.suffix.lower())
         now = time.time()
         if existing:
             file_id = int(existing["id"])
             self.db.conn.execute(
                 "UPDATE files SET hash=?, size=?, language=?, mtime=?, indexed_at=? WHERE id=?",
-                (file_hash, size, language, path.stat().st_mtime, now, file_id),
+                (file_hash, size, language, st.st_mtime, now, file_id),
             )
             old_chunks = [int(r["id"]) for r in self.db.conn.execute(
                 "SELECT id FROM chunks WHERE file_id=?", (file_id,))]
@@ -258,7 +272,7 @@ class FileIndex:
             cur = self.db.conn.execute(
                 "INSERT INTO files(path, hash, size, language, mtime, indexed_at) "
                 "VALUES (?,?,?,?,?,?)",
-                (spath, file_hash, size, language, path.stat().st_mtime, now),
+                (spath, file_hash, size, language, st.st_mtime, now),
             )
             file_id = int(cur.lastrowid)
 
@@ -271,15 +285,25 @@ class FileIndex:
                 (file_id, i, chunk, pack(vec), self.embedder.name),
             )
             self.vec.upsert(int(cur.lastrowid), vec)
+        self._store_centroid(file_id, vectors)
 
         for mod in _extract_imports(text, language):
             self.db.conn.execute(
                 "INSERT OR REPLACE INTO edges(src, dst, type, weight) VALUES (?,?,?,1.0)",
                 (f"file:{file_id}", f"module:{mod}", "imports"),
             )
-
-        self.db.conn.commit()
         return "indexed", file_id, len(chunks)
+
+    def _store_centroid(self, file_id: int, vectors: list[list[float]]) -> None:
+        centroid = _mean_unit(vectors)
+        self.db.conn.execute(
+            "UPDATE files SET centroid=?, emb_model=? WHERE id=?",
+            (pack(centroid) if centroid else None, self.embedder.name, file_id),
+        )
+        if centroid:
+            self.file_vec.upsert(file_id, centroid)
+        else:
+            self.file_vec.delete(file_id)
 
     def _prune_missing(self, root: Path, seen: set[str]) -> int:
         """Drop index rows for files under ``root`` that no longer exist."""
@@ -297,6 +321,7 @@ class FileIndex:
         chunk_ids = [int(r["id"]) for r in self.db.conn.execute(
             "SELECT id FROM chunks WHERE file_id=?", (file_id,))]
         self.vec.delete_many(chunk_ids)
+        self.file_vec.delete(file_id)
         self.db.conn.execute("DELETE FROM chunks WHERE file_id=?", (file_id,))
         self.db.conn.execute("DELETE FROM edges WHERE src=? OR dst=?",
                              (f"file:{file_id}", f"file:{file_id}"))
@@ -320,8 +345,36 @@ class FileIndex:
             )
             self.vec.upsert(int(r["id"]), vec)
             touched.add(int(r["file_id"]))
+        for fid in touched:
+            self._recompute_centroid(fid)
         self.db.conn.commit()
         return sorted(touched)
+
+    def _recompute_centroid(self, file_id: int) -> None:
+        rows = self.db.conn.execute(
+            "SELECT embedding FROM chunks WHERE file_id=? AND emb_model=?",
+            (file_id, self.embedder.name)).fetchall()
+        self._store_centroid(file_id, [unpack(r["embedding"]) for r in rows if r["embedding"]])
+
+    def _backfill_centroids(self) -> int:
+        """Databases from before schema v4 have no centroids; compute them once."""
+        ids = [int(r["id"]) for r in self.db.conn.execute(
+            "SELECT id FROM files WHERE centroid IS NULL OR emb_model IS NOT ?",
+            (self.embedder.name,))]
+        for fid in ids:
+            self._recompute_centroid(fid)
+        if ids:
+            self.db.conn.commit()
+        return len(ids)
+
+    def _invalidate_similarity_cache(self, changed: list[int]) -> None:
+        if not changed:
+            return
+        self.db.conn.executemany(
+            "DELETE FROM edges WHERE type='similar_to' AND (src=? OR dst=?)",
+            [(f"file:{fid}", f"file:{fid}") for fid in changed],
+        )
+        self.db.conn.commit()
 
     # -- search ---------------------------------------------------------------
     def search(self, query: str, *, k: int = 8) -> list[dict]:
@@ -384,75 +437,43 @@ class FileIndex:
         return ranked[:k]
 
     def similar_files(self, path: str | Path, *, k: int = 5) -> list[dict]:
+        """Files whose centroid is nearest to this file's.
+
+        A KNN query over per-file centroids (sqlite-vec or Python scan), computed
+        on demand and cached as ``similar_to`` edges. The MVP materialised every
+        pair at index time, which made indexing O(n^2); this is O(n) per lookup
+        in the fallback and O(log n) with sqlite-vec.
+        """
         path = str(Path(path).expanduser().resolve())
-        row = self.db.conn.execute("SELECT id FROM files WHERE path=?", (path,)).fetchone()
+        row = self.db.conn.execute(
+            "SELECT id, centroid FROM files WHERE path=?", (path,)).fetchone()
         if not row:
             return []
-        file_id = row["id"]
-        neighbors = self.db.conn.execute(
+        file_id = int(row["id"])
+        cached = self.db.conn.execute(
             "SELECT dst, weight FROM edges WHERE src=? AND type='similar_to' "
-            "ORDER BY weight DESC LIMIT ?",
-            (f"file:{file_id}", k),
-        ).fetchall()
+            "ORDER BY weight DESC LIMIT ?", (f"file:{file_id}", k)).fetchall()
+        if cached:
+            pairs = [(int(n["dst"].split(":")[1]), float(n["weight"])) for n in cached]
+        else:
+            centroid = unpack(row["centroid"])
+            if not centroid:
+                return []
+            hits = self.file_vec.search(centroid, max(k, _SIMILAR_K) + 1)
+            pairs = [(fid, sim) for fid, sim in hits
+                     if fid != file_id and sim >= _SIMILAR_THRESHOLD][:_SIMILAR_K]
+            for fid, sim in pairs:
+                self.db.conn.execute(
+                    "INSERT OR REPLACE INTO edges(src, dst, type, weight) VALUES (?,?,?,?)",
+                    (f"file:{file_id}", f"file:{fid}", "similar_to", sim))
+            self.db.conn.commit()
+            pairs = pairs[:k]
         out = []
-        for n in neighbors:
-            fid = int(n["dst"].split(":")[1])
+        for fid, sim in pairs:
             f = self.db.conn.execute("SELECT path FROM files WHERE id=?", (fid,)).fetchone()
             if f:
-                out.append({"path": f["path"], "similarity": round(n["weight"], 4)})
+                out.append({"path": f["path"], "similarity": round(sim, 4)})
         return out
-
-    # -- graph ----------------------------------------------------------------
-    def _file_vector(self, file_id: int) -> list[float]:
-        """Mean of a file's chunk vectors (its centroid)."""
-        rows = self.db.conn.execute(
-            "SELECT embedding FROM chunks WHERE file_id=? AND emb_model=?",
-            (file_id, self.embedder.name),
-        ).fetchall()
-        vecs = [unpack(r["embedding"]) for r in rows if r["embedding"]]
-        if not vecs:
-            return []
-        dim = len(vecs[0])
-        acc = [0.0] * dim
-        for v in vecs:
-            for i in range(dim):
-                acc[i] += v[i]
-        n = len(vecs)
-        return [x / n for x in acc]
-
-    def _update_similarity_edges(self, changed: list[int]) -> None:
-        """Recompute similar_to edges only for files whose content changed.
-
-        Cost is O(changed x total) instead of the MVP's O(total^2) full pass.
-        Edges are symmetric, so touching a changed file refreshes both directions.
-        """
-        if not changed:
-            return
-        all_ids = [int(r["id"]) for r in self.db.conn.execute("SELECT id FROM files")]
-        centroids = {fid: self._file_vector(fid) for fid in all_ids}
-        centroids = {k: v for k, v in centroids.items() if v}
-        changed_set = {c for c in changed if c in centroids}
-        for cid in changed_set:
-            self.db.conn.execute(
-                "DELETE FROM edges WHERE type='similar_to' AND (src=? OR dst=?)",
-                (f"file:{cid}", f"file:{cid}"),
-            )
-        for cid in changed_set:
-            sims = []
-            for other, vec in centroids.items():
-                if other == cid:
-                    continue
-                sim = cosine(centroids[cid], vec)
-                if sim >= _SIMILAR_THRESHOLD:
-                    sims.append((sim, other))
-            sims.sort(reverse=True)
-            for sim, other in sims[:_SIMILAR_K]:
-                for a, b in ((cid, other), (other, cid)):
-                    self.db.conn.execute(
-                        "INSERT OR REPLACE INTO edges(src, dst, type, weight) VALUES (?,?,?,?)",
-                        (f"file:{a}", f"file:{b}", "similar_to", sim),
-                    )
-        self.db.conn.commit()
 
     def stats(self) -> dict:
         f = self.db.conn.execute("SELECT COUNT(*) n FROM files").fetchone()["n"]

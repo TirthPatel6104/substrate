@@ -26,10 +26,12 @@ from .embedding import cosine, pack, unpack
 
 
 class VectorIndex:
-    def __init__(self, db: Database, name: str, *, source: str, dim: int, model: str) -> None:
+    def __init__(self, db: Database, name: str, *, source: str, dim: int, model: str,
+                 column: str = "embedding") -> None:
         self.db = db
         self.name = name                # e.g. "chunks_vec"
-        self.source = source            # e.g. "chunks" (must have id, embedding, emb_model)
+        self.source = source            # e.g. "chunks" (must have id, <column>, emb_model)
+        self.column = column
         self.dim = dim
         self.model = model
         self.accelerated = db.vec_available
@@ -89,7 +91,7 @@ class VectorIndex:
         self.db.conn.execute(f"DELETE FROM {self.name}")
         n = 0
         for row in self.db.conn.execute(
-            f"SELECT id, embedding FROM {self.source} WHERE emb_model=?", (self.model,)
+            f"SELECT id, {self.column} AS embedding FROM {self.source} WHERE emb_model=?", (self.model,)
         ):
             vec = unpack(row["embedding"])
             if len(vec) == self.dim:
@@ -141,7 +143,7 @@ class VectorIndex:
         return [(int(r["rowid"]), 1.0 - float(r["distance"])) for r in rows[:k]]
 
     def _search_scan(self, qvec, k, where, params) -> list[tuple[int, float]]:
-        sql = f"SELECT id, embedding FROM {self.source} WHERE emb_model=?"
+        sql = f"SELECT id, {self.column} AS embedding FROM {self.source} WHERE emb_model=?"
         args: tuple = (self.model,)
         if where:
             sql += f" AND ({where})"

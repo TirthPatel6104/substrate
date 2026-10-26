@@ -19,7 +19,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -72,7 +72,9 @@ CREATE TABLE IF NOT EXISTS files (
     size        INTEGER,
     language    TEXT,
     mtime       REAL,
-    indexed_at  REAL
+    indexed_at  REAL,
+    centroid    BLOB,                   -- mean of chunk vectors (float32), for files.similar
+    emb_model   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_files_hash ON files(hash);
 
@@ -171,6 +173,12 @@ _MIGRATIONS: dict[int, list[str]] = {
         "content_rowid='id', tokenize=\"unicode61 tokenchars '_'\")",
         "INSERT INTO memories_fts(memories_fts) VALUES ('rebuild')",
         "INSERT INTO chunks_fts(chunks_fts) VALUES ('rebuild')",
+    ],
+    # v4: per-file centroid so similar-file lookup is a KNN query, not an
+    # O(n^2) edge rebuild at index time. Backfilled lazily by FileIndex.
+    4: [
+        "ALTER TABLE files ADD COLUMN centroid BLOB",
+        "ALTER TABLE files ADD COLUMN emb_model TEXT",
     ],
 }
 
