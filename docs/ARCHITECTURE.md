@@ -42,7 +42,7 @@ storage model, and the decisions behind them.
 | `executor.py` | Runs SAFE commands; queues confirm-level ones; re-classifies approved ones | Uses the gate's tokenizer; argv execution unless shell operators are present. |
 | `approvals.py` | Durable pending → approved/denied → executed/expired queue | Replaces a blocking `input()` so human-in-the-loop works in headless agents. |
 | `memory.py` | Typed, scoped, provenance-tracked memories; hybrid recall; compaction; decay | Supersede-not-delete; secrets refused at write time; RRF with pin/importance/recency boosts. |
-| `files.py` | Incremental index: hash → chunk → embed → FTS + vectors + edges; hybrid search | Blake2b content hashes skip unchanged files; `.gitignore`-aware walk; similarity edges recomputed only for changed files. |
+| `files.py` | Incremental index: hash → chunk → embed → FTS + vectors + edges; hybrid search | Blake2b content hashes skip unchanged files; one read per file; `.gitignore`-aware walk; per-file centroids make `similar` a KNN query cached as edges, not an O(n²) pass at index time. |
 | `tasks.py` | Tasks, steps, resume packs, leases, handoffs | Lease-based single writer with expiry; reads never block. |
 | `embedding.py` | Embedder selection; float32 vector (de)serialisation | Hashing n-grams by default (offline, deterministic); FastEmbed when installed. |
 | `vec.py` | `VectorIndex`: KNN over a source table | sqlite-vec when loadable, Python scan otherwise; both tested for parity. |
@@ -58,8 +58,8 @@ WAL mode, `synchronous=NORMAL`. Tables:
   `importance`, `uses`, `pinned`, `superseded_by`, `expires_at`, and a
   float32 `embedding` + `emb_model`. `memories_fts` is an external-content
   FTS5 table kept in sync by triggers.
-- `files` / `chunks` — file metadata and ~1.2 kB paragraph chunks with their
-  embeddings; `chunks_fts` likewise.
+- `files` / `chunks` — file metadata (including a centroid vector per file)
+  and ~1.2 kB paragraph chunks with their embeddings; `chunks_fts` likewise.
 - `edges` — a generic graph: `imports`, `similar_to`, `supersedes`. A plain
   `(src, dst, type, weight)` table with indexes is enough; a graph database
   would be operational overkill for a desktop daemon.
@@ -97,7 +97,8 @@ Numbers are in [RETRIEVAL.md](RETRIEVAL.md).
 current schema and stamp; an older one runs each missing step from
 `_MIGRATIONS` in order and bumps the stamp after each. Steps are append-only:
 never edit a shipped step, add a new version. v2 added `approvals.cwd`; v3
-recreated the FTS tables with the identifier tokenizer and rebuilt them.
+recreated the FTS tables with the identifier tokenizer and rebuilt them; v4
+added `files.centroid` (backfilled lazily by the index on first use).
 
 ## Concurrency
 

@@ -20,7 +20,9 @@ All notable changes to this project are documented here. The format follows
   automatic re-embedding when the embedding model changes; FastEmbed auto-detection.
 - **Retrieval**: identifier-aware FTS5 tokenizer (schema v3), exact-identifier-first
   lexical ranking, filename boost, recency boost; `.gitignore`-aware indexing;
-  incremental similarity edges; pruning of deleted files.
+  pruning of deleted files; per-file centroids (schema v4) so `files.similar` is an
+  on-demand KNN query instead of an O(n²) edge rebuild at index time (2,000 files:
+  177 s → 13 s); files are read once per index pass.
 - **Safety gate**: quote-aware splitting; `eval`/`xargs`/`find -exec`/`timeout`/`sudo -u`/
   `env VAR=` wrappers; interpreter string-literal scanning; `&` and `&>` handling;
   unresolvable `$VAR` in destructive positions; Windows path tokenisation; PowerShell,
@@ -32,7 +34,8 @@ All notable changes to this project are documented here. The format follows
 - **CLI**: `doctor`, `serve`, `mcp-config`, `hook session-start|stop` (Claude Code),
   `classify`, `claim`, `handoff`, `step`, `audit`, `memories`, `supersede`,
   `approve --run`, `session end`, `maintenance`.
-- Schema migrations with a `schema_version` stamp (v2: `approvals.cwd`; v3: FTS tokenizer).
+- Schema migrations with a `schema_version` stamp (v2: `approvals.cwd`; v3: FTS tokenizer;
+  v4: `files.centroid`).
 - `evals/retrieval_golden.jsonl` + `scripts/bench_retrieval.py` (recall@k, MRR, latency).
 - CI on Linux, macOS and Windows with coverage, wheel build + smoke test, PyPI release
   workflow via trusted publishing. Examples for Claude Code and a two-agent handoff demo.
