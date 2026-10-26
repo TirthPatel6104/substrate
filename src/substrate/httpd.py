@@ -34,6 +34,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import sys
 import threading
 import time
 import uuid
@@ -49,7 +50,11 @@ DEFAULT_PORT = 8731
 
 class SubstrateHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    # On POSIX, SO_REUSEADDR only lets us rebind a port left in TIME_WAIT after a
+    # restart. On Windows it additionally lets a *second* listener bind an
+    # in-use port, which both races our own tests and would let another local
+    # process hijack the daemon's port, so it stays off there.
+    allow_reuse_address = sys.platform != "win32"
 
     def __init__(self, addr: tuple[str, int], substrate: Substrate, *, token: str | None = None) -> None:
         super().__init__(addr, Handler)

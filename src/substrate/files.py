@@ -63,8 +63,14 @@ def _mean_unit(vectors: list[list[float]]) -> list[float]:
 
 
 def _chunk_text(text: str, target: int = 1200) -> list[str]:
-    """Chunk by paragraphs, packing up to ~target chars, capped at _MAX_CHUNKS."""
-    paras = [p.strip() for p in text.split("\n\n") if p.strip()]
+    """Chunk by paragraphs, packing up to ~target chars, capped at _MAX_CHUNKS.
+
+    Line endings are normalised first: a CRLF checkout (git autocrlf on
+    Windows) has no ``\\n\\n`` at all, which used to collapse a 30 kB module
+    into one chunk and wreck both rankers.
+    """
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    paras = [p.strip() for p in re.split(r"\n[ \t]*\n", text) if p.strip()]
     chunks: list[str] = []
     buf = ""
     for p in paras:

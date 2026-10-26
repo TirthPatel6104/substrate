@@ -1,0 +1,36 @@
+{"query": "HTTPAdapter", "expect": ["src/requests/adapters.py"], "kind": "symbol"}
+{"query": "CaseInsensitiveDict", "expect": ["src/requests/structures.py"], "kind": "symbol"}
+{"query": "RequestsCookieJar", "expect": ["src/requests/cookies.py"], "kind": "symbol"}
+{"query": "PreparedRequest", "expect": ["src/requests/models.py"], "kind": "symbol"}
+{"query": "dispatch_hook", "expect": ["src/requests/hooks.py"], "kind": "symbol"}
+{"query": "get_encoding_from_headers", "expect": ["src/requests/utils.py"], "kind": "symbol"}
+{"query": "resolve_redirects", "expect": ["src/requests/sessions.py"], "kind": "symbol"}
+{"query": "raise_for_status", "expect": ["src/requests/models.py"], "kind": "symbol"}
+{"query": "where does the Session class merge settings and send requests", "expect": ["src/requests/sessions.py"], "kind": "keyword"}
+{"query": "HTTP basic and digest authentication", "expect": ["src/requests/auth.py"], "kind": "keyword"}
+{"query": "status code lookup like codes.ok", "expect": ["src/requests/status_codes.py"], "kind": "keyword"}
+{"query": "custom exception hierarchy ConnectionError Timeout TooManyRedirects", "expect": ["src/requests/exceptions.py"], "kind": "keyword"}
+{"query": "cookie jar extract cookies to jar", "expect": ["src/requests/cookies.py"], "kind": "keyword"}
+{"query": "mount a transport adapter for a URL prefix", "expect": ["src/requests/sessions.py"], "kind": "keyword"}
+{"query": "urllib3 PoolManager max retries connection pool", "expect": ["src/requests/adapters.py"], "kind": "keyword"}
+{"query": "default user agent string", "expect": ["src/requests/utils.py"], "kind": "keyword"}
+{"query": "netrc credentials lookup", "expect": ["src/requests/utils.py"], "kind": "keyword"}
+{"query": "CA certificate bundle path certifi", "expect": ["src/requests/certs.py"], "kind": "keyword"}
+{"query": "python 2 and 3 compatibility shims", "expect": ["src/requests/compat.py"], "kind": "keyword"}
+{"query": "version number of the package", "expect": ["src/requests/__version__.py"], "kind": "keyword"}
+{"query": "module level get post put delete convenience functions", "expect": ["src/requests/api.py"], "kind": "keyword"}
+{"query": "print debugging information about the installed versions", "expect": ["src/requests/help.py"], "kind": "keyword"}
+{"query": "how do I stream a large download chunk by chunk", "expect": ["src/requests/models.py", "docs/user/advanced.rst", "docs/user/quickstart.rst"], "kind": "paraphrase"}
+{"query": "what happens when a server redirects too many times", "expect": ["src/requests/sessions.py", "src/requests/exceptions.py"], "kind": "paraphrase"}
+{"query": "skip the proxy for certain hosts via NO_PROXY", "expect": ["src/requests/utils.py"], "kind": "paraphrase"}
+{"query": "decode a response body as JSON and fail nicely if it is not", "expect": ["src/requests/models.py"], "kind": "paraphrase"}
+{"query": "verify the server's TLS certificate or turn verification off", "expect": ["src/requests/adapters.py", "docs/user/advanced.rst"], "kind": "paraphrase"}
+{"query": "keep the same connection and cookies across several calls", "expect": ["src/requests/sessions.py", "docs/user/advanced.rst"], "kind": "paraphrase"}
+{"query": "run a callback after every response", "expect": ["src/requests/hooks.py", "docs/user/advanced.rst"], "kind": "paraphrase"}
+{"query": "percent-encode a URL without double encoding", "expect": ["src/requests/utils.py"], "kind": "paraphrase"}
+{"query": "upload a file as multipart form data", "expect": ["src/requests/models.py", "docs/user/quickstart.rst", "docs/user/advanced.rst"], "kind": "paraphrase"}
+{"query": "headers whose keys compare case-insensitively", "expect": ["src/requests/structures.py"], "kind": "paraphrase"}
+{"query": "guess the text encoding when the server does not say", "expect": ["src/requests/utils.py", "src/requests/models.py"], "kind": "paraphrase"}
+{"query": "how to install the library", "expect": ["docs/user/install.rst", "README.md"], "kind": "paraphrase"}
+{"query": "rewind the request body before a retry or redirect", "expect": ["src/requests/utils.py", "src/requests/sessions.py"], "kind": "paraphrase"}
+{"query": "project changelog release notes history", "expect": ["HISTORY.md"], "kind": "keyword"}

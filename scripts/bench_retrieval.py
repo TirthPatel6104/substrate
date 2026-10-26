@@ -37,13 +37,21 @@ def _pct(xs: list[float], p: float) -> float:
     return xs[min(len(xs) - 1, int(len(xs) * p))]
 
 
-def golden_eval(k: int = 5) -> dict:
-    rows = [json.loads(ln) for ln in GOLDEN.read_text(encoding="utf-8").splitlines() if ln.strip()]
+def golden_eval(k: int = 5, *, repo: Path = ROOT, golden: Path = GOLDEN,
+                exclude: tuple[str, ...] = ("evals",)) -> dict:
+    """Evaluate against ``golden`` over the files under ``repo``.
+
+    Paths in the golden file are relative to ``repo``. The default evaluates
+    this repository; ``--repo/--golden`` point at an external corpus (see
+    ``evals/external/README.md`` for the pinned checkout commands).
+    """
+    repo = repo.resolve()
+    rows = [json.loads(ln) for ln in golden.read_text(encoding="utf-8").splitlines() if ln.strip()]
     with tempfile.TemporaryDirectory() as td:
         s = Substrate(workspace="bench", db_path=Path(td) / "bench.db")
         t0 = time.perf_counter()
         # The golden file holds the queries verbatim: indexing it would be a leak.
-        stats = s.files.index_path(ROOT, exclude=("evals",))
+        stats = s.files.index_path(repo, exclude=exclude)
         index_s = time.perf_counter() - t0
         # warm-up (model load, page cache)
         s.files.search("warm up", k=k)
@@ -57,7 +65,7 @@ def golden_eval(k: int = 5) -> dict:
             t1 = time.perf_counter()
             res = s.files.search(r["query"], k=k)
             lat.append((time.perf_counter() - t1) * 1000)
-            paths = [Path(x["path"]).resolve().relative_to(ROOT).as_posix() for x in res]
+            paths = [Path(x["path"]).resolve().relative_to(repo).as_posix() for x in res]
             rank = next((i for i, p in enumerate(paths) if p in r["expect"]), None)
             hits1 += rank == 0
             hits5 += rank is not None
@@ -68,6 +76,8 @@ def golden_eval(k: int = 5) -> dict:
         s.close()
     n = len(rows)
     return {
+        "repo": str(repo),
+        "golden": golden.name,
         "embedder": stats["embedder"],
         "vector_backend": stats["vector_backend"],
         "files": stats["scanned"] - stats["skipped"],
@@ -124,9 +134,15 @@ def synthetic_latency(n_chunks: int, k: int = 8, queries: int = 50) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--synthetic", type=int, default=0, help="N chunks for the latency run")
+    ap.add_argument("--repo", type=Path, default=ROOT, help="repository root to index")
+    ap.add_argument("--golden", type=Path, default=GOLDEN, help="golden JSONL (paths relative to --repo)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
-    rep = synthetic_latency(args.synthetic) if args.synthetic else golden_eval()
+    if args.synthetic:
+        rep = synthetic_latency(args.synthetic)
+    else:
+        exclude = ("evals",) if args.repo.resolve() == ROOT else ()
+        rep = golden_eval(repo=args.repo, golden=args.golden, exclude=exclude)
     if args.json:
         print(json.dumps(rep, indent=2))
         return 0

@@ -105,6 +105,18 @@ def test_v3_database_gets_centroids_backfilled(sub, tmp_path):
     assert sub.files.similar_files(tmp_path / "a.py")[0]["path"].endswith("b.py")
 
 
+def test_crlf_files_chunk_like_lf_files(sub, tmp_path):
+    from substrate.files import _chunk_text
+
+    body = "\n\n".join(f"paragraph {i} " + "word " * 120 for i in range(8))
+    lf = _chunk_text(body)
+    crlf = _chunk_text(body.replace("\n", "\r\n"))
+    assert len(lf) > 1
+    assert len(crlf) == len(lf)
+    # Blank lines containing only whitespace still separate paragraphs.
+    assert len(_chunk_text(body.replace("\n\n", "\n  \n"))) == len(lf)
+
+
 def test_stats_include_backend_and_languages(sub, tmp_path):
     _write(tmp_path, "a.py", "x = 1\n")
     sub.files.index_path(tmp_path)

@@ -36,7 +36,9 @@ All notable changes to this project are documented here. The format follows
   `approve --run`, `session end`, `maintenance`.
 - Schema migrations with a `schema_version` stamp (v2: `approvals.cwd`; v3: FTS tokenizer;
   v4: `files.centroid`).
-- `evals/retrieval_golden.jsonl` + `scripts/bench_retrieval.py` (recall@k, MRR, latency).
+- `evals/retrieval_golden.jsonl` + `scripts/bench_retrieval.py` (recall@k, MRR, latency);
+  `evals/external/requests_golden.jsonl`, a second set over `psf/requests` at a pinned
+  commit (code the author did not write), runnable with `--repo/--golden`.
 - CI on Linux, macOS and Windows with coverage, wheel build + smoke test, PyPI release
   workflow via trusted publishing. Examples for Claude Code and a two-agent handoff demo.
 
@@ -48,6 +50,10 @@ All notable changes to this project are documented here. The format follows
 - `C:\Windows` was tokenised to `C:Windows` and missed by the critical-path check.
 - `C:` and `~` were prefix-matched, blocking every path on the drive / under home.
 - SAFE verdicts always reported "No sub-commands" as their reason.
+- Files with CRLF line endings (git autocrlf on Windows) were indexed as a single
+  chunk because the chunker only split on `\n\n`; a 30 kB module became one vector.
+  Found by the external evaluation set: fixing it took recall@5 on `requests` from
+  0.81 to 0.92.
 - README claims (lease locking over MCP, tasks in the brief) that were not wired through.
 
 ### Changed
